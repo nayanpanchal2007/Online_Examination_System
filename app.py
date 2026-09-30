@@ -118,7 +118,10 @@ def show_student_home(user: dict) -> None:
         if not available:
             st.info("There are no assessments available yet.")
             return
-        exam_labels = {f"{exam['title']}  ·  {exam['subject']}  ·  {exam['question_count']} questions": exam for exam in available}
+        exam_labels = {
+            f"{exam['title']}  ·  {exam['subject']}  ·  {exam['question_count']} questions  ·  #{exam['id']}": exam
+            for exam in available
+        }
         selected_label = st.selectbox("Choose an assessment", list(exam_labels))
         exam = exam_labels[selected_label]
         st.caption(exam["description"])
@@ -138,10 +141,14 @@ def show_student_home(user: dict) -> None:
                     )
             submitted = st.form_submit_button("Submit assessment", type="primary")
         if submitted:
-            result = database.submit_attempt(user["id"], exam["id"], answers)
-            percentage = round(result["score"] / result["total"] * 100)
-            st.session_state.last_result = {"exam": exam["title"], **result, "percentage": percentage}
-            st.rerun()
+            unanswered = len(questions) - sum(answer is not None for answer in answers.values())
+            if unanswered:
+                st.error(f"Answer all questions before submitting. {unanswered} question(s) remain.")
+            else:
+                result = database.submit_attempt(user["id"], exam["id"], answers)
+                percentage = round(result["score"] / result["total"] * 100)
+                st.session_state.last_result = {"exam": exam["title"], **result, "percentage": percentage}
+                st.rerun()
         last_result = st.session_state.get("last_result")
         if last_result:
             st.success(f"{last_result['exam']} submitted · {last_result['score']} of {last_result['total']} correct ({last_result['percentage']}%).")
@@ -232,7 +239,7 @@ def show_exam_management() -> None:
         if not exams:
             st.info("Create an assessment first.")
         else:
-            exam_labels = {f"{exam['title']} · {exam['subject']}": exam for exam in exams}
+            exam_labels = {f"{exam['title']} · {exam['subject']} · #{exam['id']}": exam for exam in exams}
             selected = st.selectbox("Assessment", list(exam_labels), key="question_exam")
             exam = exam_labels[selected]
             with st.form("add_question"):
@@ -247,8 +254,11 @@ def show_exam_management() -> None:
                 if not prompt.strip() or selected_index < 0 or not all(clean_options):
                     st.error("Complete the question, all four options, and choose the correct answer.")
                 else:
-                    database.add_question(exam["id"], prompt, clean_options, clean_options[selected_index])
-                    st.success("Question added.")
+                    try:
+                        database.add_question(exam["id"], prompt, clean_options, clean_options[selected_index])
+                        st.success("Question added.")
+                    except ValueError as exc:
+                        st.error(str(exc))
             current_questions = database.get_questions(exam["id"])
             if current_questions:
                 st.caption(f"{len(current_questions)} question(s) in this assessment")
@@ -301,7 +311,8 @@ def show_student_management() -> None:
         except ValueError as exc:
             st.error(str(exc))
 
-    if st.button("Delete student", type="secondary"):
+    confirm_delete = st.checkbox("I understand this permanently deletes the student and their submissions.")
+    if st.button("Delete student", type="secondary", disabled=not confirm_delete):
         try:
             database.delete_student(selected_student["id"])
             st.success(f"Student '{selected_student['full_name']}' deleted.")

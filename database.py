@@ -36,8 +36,11 @@ def _hash_password(password: str, salt: bytes | None = None) -> str:
 
 
 def _verify_password(password: str, stored_hash: str) -> bool:
-    salt_hex, expected = stored_hash.split(":", maxsplit=1)
-    actual = _hash_password(password, bytes.fromhex(salt_hex)).split(":", maxsplit=1)[1]
+    try:
+        salt_hex, expected = stored_hash.split(":", maxsplit=1)
+        actual = _hash_password(password, bytes.fromhex(salt_hex)).split(":", maxsplit=1)[1]
+    except (ValueError, TypeError):
+        return False
     return secrets.compare_digest(actual, expected)
 
 
@@ -147,12 +150,15 @@ def add_student(username: str, full_name: str, password: str, db_path: str | Pat
     clean_password = password.strip()
     if not clean_username or not clean_full_name or not clean_password:
         raise ValueError("Username, full name, and password are required.")
-    with connect(db_path) as connection:
-        cursor = connection.execute(
-            "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, 'student')",
-            (clean_username, clean_full_name, _hash_password(clean_password)),
-        )
-        return int(cursor.lastrowid)
+    try:
+        with connect(db_path) as connection:
+            cursor = connection.execute(
+                "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, 'student')",
+                (clean_username, clean_full_name, _hash_password(clean_password)),
+            )
+            return int(cursor.lastrowid)
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("That username is already in use.") from exc
 
 
 def update_student(
@@ -187,7 +193,10 @@ def update_student(
 
         query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
         values.append(student_id)
-        connection.execute(query, tuple(values))
+        try:
+            connection.execute(query, tuple(values))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("That username is already in use.") from exc
 
 
 def delete_student(student_id: int, db_path: str | Path = DB_PATH) -> None:
@@ -221,10 +230,14 @@ def get_questions(exam_id: int, db_path: str | Path = DB_PATH) -> list[dict[str,
 
 
 def add_exam(title: str, subject: str, description: str, db_path: str | Path = DB_PATH) -> int:
+    clean_title = title.strip()
+    clean_subject = subject.strip()
+    if not clean_title or not clean_subject:
+        raise ValueError("Assessment title and subject are required.")
     with connect(db_path) as connection:
         cursor = connection.execute(
             "INSERT INTO exams (title, subject, description) VALUES (?, ?, ?)",
-            (title.strip(), subject.strip(), description.strip()),
+            (clean_title, clean_subject, description.strip()),
         )
         return int(cursor.lastrowid)
 
@@ -236,15 +249,22 @@ def add_question(
     correct_answer: str,
     db_path: str | Path = DB_PATH,
 ) -> None:
+    clean_prompt = prompt.strip()
     normalized_options = [option.strip() for option in options]
+    if not clean_prompt:
+        raise ValueError("Question text is required.")
     if len(normalized_options) < 2 or any(not option for option in normalized_options):
         raise ValueError("Add at least two non-empty answer options.")
+    if len(set(normalized_options)) != len(normalized_options):
+        raise ValueError("Answer options must be unique.")
     if correct_answer not in normalized_options:
         raise ValueError("The correct answer must match one of the options.")
     with connect(db_path) as connection:
+        if connection.execute("SELECT 1 FROM exams WHERE id = ?", (exam_id,)).fetchone() is None:
+            raise ValueError("Assessment not found.")
         connection.execute(
             "INSERT INTO questions (exam_id, prompt, options_json, correct_answer) VALUES (?, ?, ?, ?)",
-            (exam_id, prompt.strip(), json.dumps(normalized_options), correct_answer),
+            (exam_id, clean_prompt, json.dumps(normalized_options), correct_answer),
         )
 
 
@@ -256,11 +276,20 @@ def submit_attempt(
 ) -> dict[str, int]:
     with connect(db_path) as connection:
         questions = connection.execute(
-            "SELECT id, correct_answer FROM questions WHERE exam_id = ? ORDER BY id",
+            "SELECT id, correct_answer, options_json FROM questions WHERE exam_id = ? ORDER BY id",
             (exam_id,),
         ).fetchall()
         if not questions:
             raise ValueError("This exam does not have any questions yet.")
+        question_ids = {question["id"] for question in questions}
+        if set(answers) - question_ids:
+            raise ValueError("The submitted answers do not match this assessment.")
+        if any(
+            answers.get(question["id"]) is not None
+            and answers[question["id"]] not in json.loads(question["options_json"])
+            for question in questions
+        ):
+            raise ValueError("One or more submitted answers are invalid.")
         score = sum(answers.get(question["id"]) == question["correct_answer"] for question in questions)
         total = len(questions)
         connection.execute(

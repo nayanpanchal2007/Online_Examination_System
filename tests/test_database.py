@@ -51,6 +51,37 @@ class DatabaseTests(unittest.TestCase):
         database.delete_student(student_id, self.db_path)
         self.assertIsNone(database.authenticate("nina", "newsecret", self.db_path))
 
+    def test_invalid_database_inputs_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "title and subject"):
+            database.add_exam(" ", "Python", "", self.db_path)
+
+        exam_id = database.add_exam("Validation", "Python", "", self.db_path)
+        with self.assertRaisesRegex(ValueError, "Question text"):
+            database.add_question(exam_id, " ", ["yes", "no"], "yes", self.db_path)
+        with self.assertRaisesRegex(ValueError, "unique"):
+            database.add_question(exam_id, "Pick one", ["yes", "yes"], "yes", self.db_path)
+
+        with self.assertRaisesRegex(ValueError, "already in use"):
+            database.add_student("alice", "Another Alice", "password", self.db_path)
+
+        nina_id = database.add_student("nina", "Nina Lopez", "password", self.db_path)
+        with self.assertRaisesRegex(ValueError, "already in use"):
+            database.update_student(nina_id, username="alice", db_path=self.db_path)
+
+    def test_submission_rejects_answers_from_another_exam(self):
+        student = database.authenticate("alice", "alice123", self.db_path)
+        exams = database.list_exams(self.db_path)
+        question = database.get_questions(exams[0]["id"], self.db_path)[0]
+
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            database.submit_attempt(student["id"], exams[1]["id"], {question["id"]: "tuple"}, self.db_path)
+
+    def test_malformed_password_hash_fails_authentication(self):
+        with database.connect(self.db_path) as connection:
+            connection.execute("UPDATE users SET password_hash = 'not-a-valid-hash' WHERE username = 'alice'")
+
+        self.assertIsNone(database.authenticate("alice", "alice123", self.db_path))
+
 
 if __name__ == "__main__":
     unittest.main()

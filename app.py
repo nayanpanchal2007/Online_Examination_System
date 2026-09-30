@@ -15,20 +15,49 @@ st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap');
-    :root { --ink: #172c27; --muted: #65766f; --green: #176b52; --mint: #e6f1e9; --line: #dce5de; }
+    :root {
+        --ink: #19312d;
+        --muted: #61736c;
+        --green: #176b52;
+        --green-dark: #10503f;
+        --mint: #e8f1eb;
+        --paper: #f4f7f3;
+        --line: #d9e3dc;
+        --amber: #bd7046;
+    }
     html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; color: var(--ink); }
-    .stApp { background: #f7f8f3; }
-    .block-container { max-width: 1180px; padding-top: 5rem; padding-bottom: 3rem; }
+    .stApp { background: var(--paper); }
+    .block-container { max-width: 1160px; padding-top: 5rem; padding-bottom: 3rem; }
     h1, h2, h3 { color: var(--ink); }
     h1, h2 { font-family: 'Fraunces', Georgia, serif; letter-spacing: 0; }
-    [data-testid="stMetric"] { background: white; border: 1px solid var(--line); padding: 1rem 1.15rem; border-radius: 6px; }
-    [data-testid="stMetricLabel"] { color: var(--muted); }
+    h1 { line-height: 1.12; }
+    h2, h3 { line-height: 1.2; }
     .eyebrow { display: block; margin: 0 0 1rem; padding-block: .1em; color: var(--green); font-size: .76rem; font-weight: 700; line-height: 1.5; letter-spacing: .09em; text-transform: uppercase; overflow: visible; }
     .subtle { color: var(--muted); }
-    div.stButton > button[kind="primary"] { background: var(--green); border-color: var(--green); }
-    div.stButton > button { border-radius: 4px; }
-    div[data-testid="stForm"] { border-color: var(--line); border-radius: 6px; }
-    section[data-testid="stSidebar"] { background: #edf3ed; border-right: 1px solid var(--line); }
+    .login-intro { max-width: 35rem; padding: 1.25rem 0 1.5rem; border-top: 4px solid var(--green); }
+    .login-intro h1 { max-width: 11ch; margin: 0 0 1.25rem; font-size: 3rem; line-height: 1.08; }
+    .login-intro > p:not(.eyebrow) { max-width: 31rem; color: var(--muted); font-size: 1.05rem; line-height: 1.65; }
+    .login-note { margin-top: 2rem; padding-left: .9rem; border-left: 2px solid var(--amber); color: var(--muted); font-size: .82rem; font-weight: 700; letter-spacing: .04em; }
+    [data-testid="stMetric"] { background: white; border: 1px solid var(--line); padding: 1.1rem 1.2rem; border-radius: 8px; box-shadow: 0 2px 8px rgb(25 49 45 / 4%); }
+    [data-testid="stMetricLabel"] { color: var(--muted); }
+    [data-testid="stMetricValue"] { color: var(--ink); font-weight: 700; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-color: var(--line); border-radius: 8px; background: white; }
+    div[data-testid="stForm"] { border: 0; padding: 0; }
+    div.stButton > button[kind="primary"], button[kind="primaryFormSubmit"] { background: var(--green); border-color: var(--green); color: white; font-weight: 600; }
+    div.stButton > button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover { background: var(--green-dark); border-color: var(--green-dark); color: white; }
+    div.stButton > button, button[kind="primaryFormSubmit"] { min-height: 2.75rem; border-radius: 5px; transition: background-color .15s ease, border-color .15s ease; }
+    [data-baseweb="input"] > div, [data-baseweb="textarea"] > div, [data-baseweb="select"] > div { background: white; border-color: var(--line); border-radius: 5px; }
+    [data-baseweb="input"]:focus-within > div, [data-baseweb="textarea"]:focus-within > div { border-color: var(--green); box-shadow: 0 0 0 1px var(--green); }
+    [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .4rem; border-bottom: 1px solid var(--line); }
+    [data-testid="stTabs"] [data-baseweb="tab"] { min-height: 3rem; color: var(--muted); font-weight: 600; }
+    [data-testid="stTabs"] [aria-selected="true"] { color: var(--green); }
+    section[data-testid="stSidebar"] { background: #eaf1ec; border-right: 1px solid var(--line); }
+    section[data-testid="stSidebar"] .eyebrow { padding-top: .5rem; }
+    @media (max-width: 760px) {
+        .block-container { padding-top: 4.5rem; padding-bottom: 2rem; }
+        .login-intro { padding-top: .5rem; }
+        .login-intro h1 { font-size: 2.35rem; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -36,24 +65,35 @@ st.markdown(
 
 
 def show_login() -> None:
-    left, center, right = st.columns([1, 1.1, 1])
-    with center:
-        st.markdown('<p class="eyebrow">PDS · EXAMINATION PORTAL</p>', unsafe_allow_html=True)
-        st.title("A quieter way to test what you know.")
-        st.markdown('<p class="subtle">Sign in to take an assessment or review class performance.</p>', unsafe_allow_html=True)
-        with st.form("login_form"):
-            username = st.text_input("Username", placeholder="e.g. alice")
-            password = st.text_input("Password", type="password", placeholder="Your password")
-            submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
-        if submitted:
-            user = database.authenticate(username, password)
-            if user:
-                st.session_state.user = user
-                st.rerun()
-            st.error("That username and password don't match.")
-        with st.expander("Demo sign-in details"):
-            st.write("Student: `alice` / `alice123` or `sam` / `sam123`")
-            st.write("Instructor: `admin` / `admin123`")
+    intro, access = st.columns([1.1, 0.9], gap="large")
+    with intro:
+        st.markdown(
+            '<section class="login-intro">'
+            '<p class="eyebrow">PDS · EXAMINATION PORTAL</p>'
+            '<h1>Assessment with clarity.</h1>'
+            '<p>One focused workspace for student assessments, results, and course insights.</p>'
+            '<div class="login-note">STUDENT &amp; INSTRUCTOR ACCESS</div>'
+            '</section>',
+            unsafe_allow_html=True,
+        )
+    with access:
+        with st.container(border=True):
+            st.markdown('<p class="eyebrow">ACCOUNT ACCESS</p>', unsafe_allow_html=True)
+            st.subheader("Sign in")
+            st.caption("Use your assigned account credentials.")
+            with st.form("login_form"):
+                username = st.text_input("Username", placeholder="e.g. alice")
+                password = st.text_input("Password", type="password", placeholder="Your password")
+                submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+            if submitted:
+                user = database.authenticate(username, password)
+                if user:
+                    st.session_state.user = user
+                    st.rerun()
+                st.error("That username and password don't match.")
+            with st.expander("Demo sign-in details"):
+                st.write("Student: `alice` / `alice123` or `sam` / `sam123`")
+                st.write("Instructor: `admin` / `admin123`")
 
 
 def show_student_home(user: dict) -> None:

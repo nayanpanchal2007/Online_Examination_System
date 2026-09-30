@@ -1,0 +1,56 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+import database
+
+
+class DatabaseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "test.db"
+        database.initialize_database(self.db_path)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_seeded_users_can_authenticate(self):
+        student = database.authenticate("alice", "alice123", self.db_path)
+        self.assertEqual(student["role"], "student")
+        self.assertIsNone(database.authenticate("alice", "wrong", self.db_path))
+
+    def test_exam_submission_scores_answers_and_records_attempt(self):
+        student = database.authenticate("alice", "alice123", self.db_path)
+        exam = database.list_exams(self.db_path)[0]
+        questions = database.get_questions(exam["id"], self.db_path)
+        answers = {questions[0]["id"]: questions[0]["options"][0]}
+
+        result = database.submit_attempt(student["id"], exam["id"], answers, self.db_path)
+
+        self.assertEqual(result, {"score": 0, "total": 4})
+        attempts = database.get_attempts(student["id"], self.db_path)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0]["total"], 4)
+
+    def test_admin_can_create_exam_and_question(self):
+        exam_id = database.add_exam("Test", "Python", "A test exam", self.db_path)
+        database.add_question(exam_id, "Pick one", ["yes", "no"], "yes", self.db_path)
+
+        self.assertEqual(database.list_exams(self.db_path)[-1]["question_count"], 1)
+        self.assertEqual(len(database.get_questions(exam_id, self.db_path)), 1)
+
+    def test_admin_can_manage_students(self):
+        student_id = database.add_student("nina", "Nina Lopez", "nina123", self.db_path)
+
+        self.assertEqual(database.authenticate("nina", "nina123", self.db_path)["full_name"], "Nina Lopez")
+        self.assertIn("nina", [item["username"] for item in database.list_students(self.db_path)])
+
+        database.update_student(student_id, db_path=self.db_path, full_name="Nina Patel", password="newsecret")
+        self.assertEqual(database.authenticate("nina", "newsecret", self.db_path)["full_name"], "Nina Patel")
+
+        database.delete_student(student_id, self.db_path)
+        self.assertIsNone(database.authenticate("nina", "newsecret", self.db_path))
+
+
+if __name__ == "__main__":
+    unittest.main()

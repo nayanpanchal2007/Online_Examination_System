@@ -73,7 +73,7 @@ def show_login() -> None:
     with intro:
         st.markdown(
             '<section class="login-intro">'
-            '<p class="eyebrow">PDS · EXAMINATION PORTAL</p>'
+            '<p class="eyebrow">EXAMINATION PORTAL</p>'
             '<h1>Assessment with clarity.</h1>'
             '<p>One focused workspace for student assessments, results, and course insights.</p>'
             '<div class="login-note">STUDENT &amp; INSTRUCTOR ACCESS</div>'
@@ -125,7 +125,11 @@ def show_student_home(user: dict) -> None:
         selected_label = st.selectbox("Choose an assessment", list(exam_labels))
         exam = exam_labels[selected_label]
         st.caption(exam["description"])
-        questions = database.get_questions(exam["id"])
+        try:
+            questions = database.get_questions(exam["id"])
+        except ValueError as exc:
+            st.error(str(exc))
+            return
         with st.form(f"exam_{exam['id']}"):
             answers = {}
             for index, question in enumerate(questions, start=1):
@@ -145,12 +149,16 @@ def show_student_home(user: dict) -> None:
             if unanswered:
                 st.error(f"Answer all questions before submitting. {unanswered} question(s) remain.")
             else:
-                result = database.submit_attempt(user["id"], exam["id"], answers)
-                percentage = round(result["score"] / result["total"] * 100)
-                st.session_state.last_result = {"exam": exam["title"], **result, "percentage": percentage}
-                st.rerun()
+                try:
+                    result = database.submit_attempt(user["id"], exam["id"], answers)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    percentage = round(result["score"] / result["total"] * 100)
+                    st.session_state.last_result = {"exam": exam["title"], "exam_id": exam["id"], **result, "percentage": percentage}
+                    st.rerun()
         last_result = st.session_state.get("last_result")
-        if last_result:
+        if last_result and last_result.get("exam_id") == exam["id"]:
             st.success(f"{last_result['exam']} submitted · {last_result['score']} of {last_result['total']} correct ({last_result['percentage']}%).")
     with results_tab:
         if attempts:
@@ -259,7 +267,11 @@ def show_exam_management() -> None:
                         st.success("Question added.")
                     except ValueError as exc:
                         st.error(str(exc))
-            current_questions = database.get_questions(exam["id"])
+            try:
+                current_questions = database.get_questions(exam["id"])
+            except ValueError as exc:
+                st.error(str(exc))
+                return
             if current_questions:
                 st.caption(f"{len(current_questions)} question(s) in this assessment")
                 for index, question in enumerate(current_questions, start=1):
@@ -330,7 +342,7 @@ def main() -> None:
         return
     user = st.session_state.user
     with st.sidebar:
-        st.markdown('<p class="eyebrow">PDS · EXAM PORTAL</p>', unsafe_allow_html=True)
+        st.markdown('<p class="eyebrow">EXAM PORTAL</p>', unsafe_allow_html=True)
         st.write(f"Signed in as **{user['full_name']}**")
         st.caption("Instructor" if user["role"] == "admin" else "Student")
         st.divider()

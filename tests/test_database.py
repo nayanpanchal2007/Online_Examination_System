@@ -23,11 +23,11 @@ class DatabaseTests(unittest.TestCase):
         student = database.authenticate("alice", "alice123", self.db_path)
         exam = database.list_exams(self.db_path)[0]
         questions = database.get_questions(exam["id"], self.db_path)
-        answers = {questions[0]["id"]: questions[0]["options"][0]}
+        answers = {question["id"]: question["options"][0] for question in questions}
 
         result = database.submit_attempt(student["id"], exam["id"], answers, self.db_path)
 
-        self.assertEqual(result, {"score": 0, "total": 4})
+        self.assertEqual(result, {"score": 1, "total": 4})
         attempts = database.get_attempts(student["id"], self.db_path)
         self.assertEqual(len(attempts), 1)
         self.assertEqual(attempts[0]["total"], 4)
@@ -72,15 +72,43 @@ class DatabaseTests(unittest.TestCase):
         student = database.authenticate("alice", "alice123", self.db_path)
         exams = database.list_exams(self.db_path)
         question = database.get_questions(exams[0]["id"], self.db_path)[0]
+        other_questions = database.get_questions(exams[1]["id"], self.db_path)
+        answers = {item["id"]: item["options"][0] for item in other_questions}
+        answers[question["id"]] = "tuple"
 
         with self.assertRaisesRegex(ValueError, "do not match"):
-            database.submit_attempt(student["id"], exams[1]["id"], {question["id"]: "tuple"}, self.db_path)
+            database.submit_attempt(student["id"], exams[1]["id"], answers, self.db_path)
 
     def test_malformed_password_hash_fails_authentication(self):
         with database.connect(self.db_path) as connection:
             connection.execute("UPDATE users SET password_hash = 'not-a-valid-hash' WHERE username = 'alice'")
 
         self.assertIsNone(database.authenticate("alice", "alice123", self.db_path))
+
+    def test_submission_rejects_unknown_accounts_and_incomplete_answers(self):
+        exam = database.list_exams(self.db_path)[0]
+        questions = database.get_questions(exam["id"], self.db_path)
+        student = database.authenticate("alice", "alice123", self.db_path)
+        answers = {question["id"]: question["options"][0] for question in questions}
+
+        with self.assertRaisesRegex(ValueError, "Answer every question"):
+            database.submit_attempt(student["id"], exam["id"], {}, self.db_path)
+        with self.assertRaisesRegex(ValueError, "Student account"):
+            database.submit_attempt(99999, exam["id"], answers, self.db_path)
+        with self.assertRaisesRegex(ValueError, "Assessment not found"):
+            database.submit_attempt(student["id"], 99999, answers, self.db_path)
+
+    def test_corrupt_question_options_are_reported_as_validation_errors(self):
+        exam = database.list_exams(self.db_path)[0]
+        question_id = database.get_questions(exam["id"], self.db_path)[0]["id"]
+        with database.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE questions SET options_json = ? WHERE id = ?",
+                ("not-json", question_id),
+            )
+
+        with self.assertRaisesRegex(ValueError, "invalid question data"):
+            database.get_questions(exam["id"], self.db_path)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,16 @@ def _verify_password(password: str, stored_hash: str) -> bool:
     return secrets.compare_digest(actual, expected)
 
 
+def _parse_options(options_json: str) -> list[str]:
+    try:
+        options = json.loads(options_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("This assessment contains invalid question data.") from exc
+    if not isinstance(options, list) or len(options) < 2 or any(not isinstance(option, str) for option in options):
+        raise ValueError("This assessment contains invalid question data.")
+    return options
+
+
 def initialize_database(db_path: str | Path = DB_PATH) -> None:
     with connect(db_path) as connection:
         connection.executescript(
@@ -147,14 +157,13 @@ def list_students(db_path: str | Path = DB_PATH) -> list[dict[str, Any]]:
 def add_student(username: str, full_name: str, password: str, db_path: str | Path = DB_PATH) -> int:
     clean_username = username.strip()
     clean_full_name = full_name.strip()
-    clean_password = password.strip()
-    if not clean_username or not clean_full_name or not clean_password:
+    if not clean_username or not clean_full_name or not password:
         raise ValueError("Username, full name, and password are required.")
     try:
         with connect(db_path) as connection:
             cursor = connection.execute(
                 "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, 'student')",
-                (clean_username, clean_full_name, _hash_password(clean_password)),
+                (clean_username, clean_full_name, _hash_password(password)),
             )
             return int(cursor.lastrowid)
     except sqlite3.IntegrityError as exc:
@@ -185,11 +194,10 @@ def update_student(
         update_fields = ["username = ?", "full_name = ?"]
 
         if password is not None:
-            clean_password = password.strip()
-            if not clean_password:
+            if not password:
                 raise ValueError("Password cannot be empty.")
             update_fields.append("password_hash = ?")
-            values.append(_hash_password(clean_password))
+            values.append(_hash_password(password))
 
         query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
         values.append(student_id)
@@ -226,7 +234,7 @@ def get_questions(exam_id: int, db_path: str | Path = DB_PATH) -> list[dict[str,
             "SELECT id, prompt, options_json FROM questions WHERE exam_id = ? ORDER BY id",
             (exam_id,),
         ).fetchall()
-    return [{**dict(row), "options": json.loads(row["options_json"])} for row in rows]
+    return [{**dict(row), "options": _parse_options(row["options_json"])} for row in rows]
 
 
 def add_exam(title: str, subject: str, description: str, db_path: str | Path = DB_PATH) -> int:
@@ -275,6 +283,11 @@ def submit_attempt(
     db_path: str | Path = DB_PATH,
 ) -> dict[str, int]:
     with connect(db_path) as connection:
+        user = connection.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user is None or user["role"] != "student":
+            raise ValueError("Student account not found.")
+        if connection.execute("SELECT 1 FROM exams WHERE id = ?", (exam_id,)).fetchone() is None:
+            raise ValueError("Assessment not found.")
         questions = connection.execute(
             "SELECT id, correct_answer, options_json FROM questions WHERE exam_id = ? ORDER BY id",
             (exam_id,),
@@ -284,11 +297,13 @@ def submit_attempt(
         question_ids = {question["id"] for question in questions}
         if set(answers) - question_ids:
             raise ValueError("The submitted answers do not match this assessment.")
-        if any(
-            answers.get(question["id"]) is not None
-            and answers[question["id"]] not in json.loads(question["options_json"])
+        if set(answers) != question_ids:
+            raise ValueError("Answer every question before submitting the assessment.")
+        invalid_answer = any(
+            answers[question["id"]] not in _parse_options(question["options_json"])
             for question in questions
-        ):
+        )
+        if invalid_answer:
             raise ValueError("One or more submitted answers are invalid.")
         score = sum(answers.get(question["id"]) == question["correct_answer"] for question in questions)
         total = len(questions)

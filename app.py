@@ -18,12 +18,12 @@ st.markdown(
     :root { --ink: #172c27; --muted: #65766f; --green: #176b52; --mint: #e6f1e9; --line: #dce5de; }
     html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; color: var(--ink); }
     .stApp { background: #f7f8f3; }
-    .block-container { max-width: 1180px; padding-top: 2rem; padding-bottom: 3rem; }
+    .block-container { max-width: 1180px; padding-top: 5rem; padding-bottom: 3rem; }
     h1, h2, h3 { color: var(--ink); }
     h1, h2 { font-family: 'Fraunces', Georgia, serif; letter-spacing: 0; }
     [data-testid="stMetric"] { background: white; border: 1px solid var(--line); padding: 1rem 1.15rem; border-radius: 6px; }
     [data-testid="stMetricLabel"] { color: var(--muted); }
-    .eyebrow { color: var(--green); font-size: .76rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .eyebrow { display: block; margin: 0 0 1rem; padding-block: .1em; color: var(--green); font-size: .76rem; font-weight: 700; line-height: 1.5; letter-spacing: .09em; text-transform: uppercase; overflow: visible; }
     .subtle { color: var(--muted); }
     div.stButton > button[kind="primary"] { background: var(--green); border-color: var(--green); }
     div.stButton > button { border-radius: 4px; }

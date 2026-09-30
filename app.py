@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 import database
 
@@ -42,6 +43,9 @@ st.markdown(
     [data-testid="stMetricLabel"] { color: var(--muted); }
     [data-testid="stMetricValue"] { color: var(--ink); font-weight: 700; }
     [data-testid="stVerticalBlockBorderWrapper"] { border-color: var(--line); border-radius: 8px; background: white; }
+    [data-testid="stDataFrame"] { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    label { color: var(--ink); font-weight: 500; }
+    [data-testid="stCaptionContainer"] { color: var(--muted); }
     div[data-testid="stForm"] { border: 0; padding: 0; }
     div.stButton > button[kind="primary"], button[kind="primaryFormSubmit"] { background: var(--green); border-color: var(--green); color: white; font-weight: 600; }
     div.stButton > button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover { background: var(--green-dark); border-color: var(--green-dark); color: white; }
@@ -99,6 +103,7 @@ def show_login() -> None:
 def show_student_home(user: dict) -> None:
     st.markdown('<p class="eyebrow">STUDENT WORKSPACE</p>', unsafe_allow_html=True)
     st.title(f"Good to see you, {user['full_name'].split()[0]}.")
+    st.caption("Choose an assessment to begin, or review your previous results.")
     exams = database.list_exams()
     attempts = database.get_attempts(user["id"])
     average = round(sum(item["score"] / item["total"] * 100 for item in attempts) / len(attempts)) if attempts else 0
@@ -121,14 +126,16 @@ def show_student_home(user: dict) -> None:
         with st.form(f"exam_{exam['id']}"):
             answers = {}
             for index, question in enumerate(questions, start=1):
-                st.markdown(f"**{index:02}. {question['prompt']}**")
-                answers[question["id"]] = st.radio(
-                    "Select one answer",
-                    question["options"],
-                    index=None,
-                    key=f"answer_{exam['id']}_{question['id']}",
-                    label_visibility="collapsed",
-                )
+                with st.container(border=True):
+                    st.markdown(f"**Question {index:02}**")
+                    st.write(question["prompt"])
+                    answers[question["id"]] = st.radio(
+                        "Select one answer",
+                        question["options"],
+                        index=None,
+                        key=f"answer_{exam['id']}_{question['id']}",
+                        label_visibility="collapsed",
+                    )
             submitted = st.form_submit_button("Submit assessment", type="primary")
         if submitted:
             result = database.submit_attempt(user["id"], exam["id"], answers)
@@ -165,7 +172,21 @@ def show_admin_overview() -> None:
     with chart_col:
         st.subheader("Average score by subject")
         subject_scores = frame.groupby("subject")["percentage"].mean().round(1).sort_values(ascending=False)
-        st.bar_chart(subject_scores, horizontal=True, color="#176b52", x_label="Average score (%)")
+        subject_data = subject_scores.rename_axis("subject").reset_index(name="average_score")
+        subject_chart = (
+            alt.Chart(subject_data)
+            .mark_bar(color="#176b52", cornerRadiusEnd=3)
+            .encode(
+                x=alt.X("average_score:Q", title="Average score (%)", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y("subject:N", sort="-x", title=None),
+                tooltip=[
+                    alt.Tooltip("subject:N", title="Subject"),
+                    alt.Tooltip("average_score:Q", title="Average", format=".1f"),
+                ],
+            )
+            .properties(height=max(150, len(subject_data) * 38))
+        )
+        st.altair_chart(subject_chart, use_container_width=True)
     with table_col:
         st.subheader("Recent submissions")
         display = frame[["full_name", "exam_title", "score", "total", "percentage", "submitted_at"]].copy()
@@ -173,12 +194,26 @@ def show_admin_overview() -> None:
         display = display.rename(columns={"full_name": "Student", "exam_title": "Assessment", "submitted_at": "Submitted"})
         st.dataframe(display[["Student", "Assessment", "Score", "Submitted"]], use_container_width=True, hide_index=True)
     st.subheader("Score distribution")
-    st.bar_chart(frame["percentage"].round(0).value_counts().sort_index(), color="#b7773d", x_label="Score (%)", y_label="Submissions")
+    distribution_chart = (
+        alt.Chart(frame)
+        .mark_bar(color="#bd7046", cornerRadiusEnd=3)
+        .encode(
+            x=alt.X("percentage:Q", bin=alt.Bin(step=10), title="Score (%)", scale=alt.Scale(domain=[0, 100])),
+            y=alt.Y("count():Q", title="Submissions", scale=alt.Scale(domainMin=0), axis=alt.Axis(tickMinStep=1)),
+            tooltip=[
+                alt.Tooltip("percentage:Q", bin=alt.Bin(step=10), title="Score band"),
+                alt.Tooltip("count():Q", title="Submissions"),
+            ],
+        )
+        .properties(height=230)
+    )
+    st.altair_chart(distribution_chart, use_container_width=True)
 
 
 def show_exam_management() -> None:
     st.markdown('<p class="eyebrow">ASSESSMENT BUILDER</p>', unsafe_allow_html=True)
     st.title("Manage assessments")
+    st.caption("Create an assessment, then add questions before students can take it.")
     create_tab, questions_tab = st.tabs(["Create assessment", "Add questions"])
     with create_tab:
         with st.form("create_exam"):
@@ -224,6 +259,7 @@ def show_exam_management() -> None:
 def show_student_management() -> None:
     st.markdown('<p class="eyebrow">STUDENT DIRECTORY</p>', unsafe_allow_html=True)
     st.title("Manage students")
+    st.caption("Add learner accounts or update existing student details.")
 
     with st.form("add_student"):
         username = st.text_input("Username")
